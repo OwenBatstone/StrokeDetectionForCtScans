@@ -1,89 +1,88 @@
+#imports
 import os
 import zipfile
 import random
 import argparse
 from pathlib import Path
-
 import numpy as np
 from PIL import Image
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-
 from torchvision import models, transforms
 from tqdm import tqdm
 
-#Utilities / helper functions
 
-def set_seed(seed: int = 42):
-    """
-    Set all random seeds so shuffling + initialization is repeatable.
-    (Still not 100% identical across every GPU setup, but close enough.)
-    """
+#Utilities
+
+def set_seed(seed: int = 42): #sets all rng seeds to 42 for repeatability
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
 
-def unzip_if_needed(zip_path: Path, out_dir: Path):
-    """
-    Extract a zip file into out_dir, but only if it hasn't already been extracted.
-    I used zips because it's just easier to move datasets around that way.
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    #If we can already find PNGs in here, assume it's extracted and move on.
+def unzip_if_needed(zip_path: Path, out_dir: Path): #if a zip file is given unzips it
+    out_dir.mkdir(parents=True, exist_ok=True) #creates output dir if it doesnt exist
     if any(out_dir.rglob("*.png")):
-        return
+        return #if theres a png then we assume its already extracted
+    with zipfile.ZipFile(zip_path, "r") as z: #open zip file for reading
+        z.extractall(out_dir) #puts all the file in the output dir
 
-    with zipfile.ZipFile(zip_path, "r") as z:
-        z.extractall(out_dir)
 
-
-def pil_open_rgb(p: Path) -> Image.Image:
+def pil_open_rgb(p: Path) -> Image.Image: #opens the image as RGB
+    #Strips alpha cleanly
     return Image.open(p).convert("RGB")
 
 
-def pil_open_gray(p: Path) -> Image.Image:
+def pil_open_gray(p: Path) -> Image.Image: #opens image as a greyschgale
     return Image.open(p).convert("L")
 
 
-def build_binary_mask_from_overlay(original_rgb: Image.Image, overlay_rgb: Image.Image, diff_thresh: int = 25):
-    """
-    Create a binary mask (0/1) by comparing the original CT slice to its overlay version.
-
-    Idea:
-    - The overlay image has the stroke region highlighted in color.
-    - If a pixel changed a lot compared to the original, it's probably part of the stroke highlight.
-    """
-    orig = np.array(original_rgb, dtype=np.int16)   #original slice
-    over = np.array(overlay_rgb, dtype=np.int16)    #overlay slice (with colored highlight)
-
-    # Sum absolute RGB differences per pixel: bigger = more "changed"
-    diff = np.abs(over - orig).sum(axis=2)
-
-    # Anything above threshold becomes stroke = 1
-    mask = (diff > diff_thresh).astype(np.uint8)   
-    return mask
+def find_png_dir(root: Path) -> Path: #fines the best directory containing png files
+    png_dirs = sorted({p.parent for p in root.rglob("*.png")}) #gets all directories with pngs
+    if not png_dirs: #error if none found
+        raise RuntimeError(f"No PNG files found under {root}")
+    best = max(png_dirs, key=lambda d: len(list(d.glob("*.png")))) #takes directory with the most pngs
+    return best
 
 
-# Datasets
+def build_binary_mask_from_overlay(original_rgb: Image.Image, overlay_rgb: Image.Image, diff_thresh: int = 25, cleanup: bool = True):
+    orig = np.asarray(original_rgb, dtype=np.int16) #converts image to numpy array
+    over = np.asarray(overlay_rgb, dtype=np.int16) #converts overlay to numpy array
 
-class StrokeClassificationDataset(Dataset):
-    """
-    3-class image classification dataset:
-      0 = Normal
-      1 = Ischemic
-      2 = Hemorrhagic
-    """
+    diff = np.abs(over - orig).sum(axis=2)  #per pixel RBG difference
+    mask = (diff > diff_thresh).astype(np.uint8) #if difference meets threshold, 1, if not 0
+
+    if not cleanup: #if the cleanup is disabled then we return the mask immediatly
+        return mask
+
+    #Convert to tensor [1,1,H,W]
+    t = torch.from_numpy(mask[None, None, :, :].astype(np.float32))
+
+    # Dilation then erosion to fill holes
+    t = F.max_pool2d(t, kernel_size=3, stride=1, padding=1)
+    #invert, dilate, invert
+    t = 1.0 - F.max_pool2d(1.0 - t, kernel_size=3, stride=1, padding=1)
+
+    #Remove isolated noise by another mild opening
+    t = 1.0 - F.max_pool2d(1.0 - t, kernel_size=3, stride=1, padding=1)
+    t = F.max_pool2d(t, kernel_size=3, stride=1, padding=1)
+
+    out = (t.squeeze().numpy() > 0.5).astype(np.uint8)
+    return out
+
+
+#Datasets
+
+class StrokeClassificationDataset(Dataset): #COME HERE TO MAKE PREDICTION MODEL BETTER :D
+    #0 = Normal, 1 = ischemic, 2 = hemorrhagic
     def __init__(self, normal_dir: Path, ischemic_dir: Path, hemorr_dir: Path, transform=None):
-        self.transform = transform
+        self.transform = transform #may be nothing, if a resize+totensor is passed
         self.samples = []
 
-        # Build a list of path, label
+        #iterating throuhg the different png paths, then labels them for future predictions
         for p in sorted(normal_dir.glob("*.png")):
             self.samples.append((p, 0))
         for p in sorted(ischemic_dir.glob("*.png")):
@@ -91,112 +90,94 @@ class StrokeClassificationDataset(Dataset):
         for p in sorted(hemorr_dir.glob("*.png")):
             self.samples.append((p, 2))
 
-    def __len__(self):
+        if not self.samples:
+            raise RuntimeError("No classification images found.")
+
+    def __len__(self): #gets dataset length
         return len(self.samples)
 
-    def __getitem__(self, idx):
-        #Grab the path and label
+    def __getitem__(self, idx): #get one sample
         p, y = self.samples[idx]
-
-        #ResNet expects 3 channels, RGB
-        img = pil_open_rgb(p)
-
-        #Apply transforms 
+        im = pil_open_rgb(p)
         if self.transform:
-            img = self.transform(img)
+            im = self.transform(im)
+        return im, torch.tensor(y, dtype=torch.long)
 
-        return img, torch.tensor(y, dtype=torch.long)
 
-
-class StrokeSegmentationDataset(Dataset):
+class StrokeSegmentationDataset(Dataset): #dataset for binary segmanetation, only for the stroke types, normal will obviously not have an overlay (if you think it would you may be dumb sorry ;( )
     """
-    Segmentation dataset: learn where the stroke is (pixel-wise).
-    Inputs:  original CT slice (we feed grayscale for simplicity)
-    Targets: a binary mask derived from overlay-vs-original differences
-    Note: We only use ischemic + hemorrhagic for segmentation, because normal has no stroke highlight.
+    Binary segmentation for stroke region detection later on
+    Uses the original and overlay and creates a binary mask by the difference in pixels.
     """
-    def __init__(
+    def __init__( #constructor with the original and overlays 
         self,
         ischemic_dir: Path,
         hemorr_dir: Path,
         ischemic_overlay_dir: Path,
         hemorr_overlay_dir: Path,
-        img_transform=None,
-        mask_size=(256, 256),
-        diff_thresh=25
+        size=(256, 256), #resizes the taarget 
+        diff_thresh=25, #threshold to mask difference
+        cleanup=True, #runs morphological cleanup
     ):
-        self.img_transform = img_transform
-        self.mask_size = mask_size
-        self.diff_thresh = diff_thresh
+        self.size = size #sotres the ressized size
+        self.diff_thresh = diff_thresh #stores the difference threshold
+        self.cleanup = cleanup #stores cleanup flag
 
-        self.pairs = []
-
-        #Pair each original image with its matching overlay by filename
+        self.pairs = [] #holds the pairs of overlay x original (love story)
         for img_dir, ov_dir in [(ischemic_dir, ischemic_overlay_dir), (hemorr_dir, hemorr_overlay_dir)]:
-            for img_path in sorted(img_dir.glob("*.png")):
-                ov_path = ov_dir / img_path.name
-                if ov_path.exists():
+            for img_path in sorted(img_dir.glob("*.png")): #llops through og images
+                ov_path = ov_dir / img_path.name #overlays by maching the two naems
+                if ov_path.exists(): #only keep pairs where the overlay exists for the image
                     self.pairs.append((img_path, ov_path))
 
-        if len(self.pairs) == 0:
-            raise RuntimeError("No segmentation pairs found (check overlay filenames match originals).")
+        if not self.pairs: #if no overlays exist
+            raise RuntimeError("No pairs found. Name your files better or like get overlays... This is like the entire point, get a better dataset or smt idk")
 
-        # Not strictly needed might remove
-        self._mask_resize = transforms.Resize(
-            self.mask_size,
-            interpolation=transforms.InterpolationMode.NEAREST
-        )
+        self.to_tensor = transforms.ToTensor() #converts to tensor
 
-    def __len__(self):
-        return len(self.pairs)
+    def __len__(self): #required length
+        return len(self.pairs) #number of pairs
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx): #gets one training example
         img_path, ov_path = self.pairs[idx]
 
-        #Load both as RGB so we can compute pixel differences
-        orig_rgb = pil_open_rgb(img_path)
+        #loads images as RGV
+        orig_rgb = pil_open_rgb(img_path) 
         ov_rgb = pil_open_rgb(ov_path)
 
-        #Build binary mask 
-        mask = build_binary_mask_from_overlay(orig_rgb, ov_rgb, diff_thresh=self.diff_thresh)
+        mask = build_binary_mask_from_overlay( #builds masks based off the overlay differences
+            orig_rgb, ov_rgb,
+            diff_thresh=self.diff_thresh,
+            cleanup=self.cleanup
+        )  #uint8 {0,1} [H,W]
 
-        #UNet input: use grayscale CT slice
+        #grayscale input
         orig_gray = pil_open_gray(img_path)
 
-        #Resize image to training resolution
-        orig_gray = orig_gray.resize(self.mask_size[::-1], resample=Image.BILINEAR)
+        #resize both
+        W, H = self.size[1], self.size[0]  # PIL uses (W,H)
+        orig_gray = orig_gray.resize((W, H), resample=Image.BILINEAR)
 
-        #Resize the mask to
         mask_pil = Image.fromarray((mask * 255).astype(np.uint8), mode="L")
-        mask_pil = mask_pil.resize(self.mask_size[::-1], resample=Image.NEAREST)
+        mask_pil = mask_pil.resize((W, H), resample=Image.NEAREST)
 
-        #Convert to tensors
-        img_t = transforms.ToTensor()(orig_gray)   
-        mask_t = transforms.ToTensor()(mask_pil)   
-
-        #Force the mask to be clean 0/1 and drop the channel dimension
-        mask_t = (mask_t > 0.5).float().squeeze(0)
-
-        #Optional normalization
-        if self.img_transform:
-            img_t = self.img_transform(img_t)
+        #tensors
+        img_t = self.to_tensor(orig_gray)           #[1,H,W] float 0..1
+        mask_t = self.to_tensor(mask_pil).squeeze(0)  #[H,W] float 0..1
+        mask_t = (mask_t > 0.5).float()             #hard {0,1}
 
         return img_t, mask_t
 
 
-def split_indices(n, val_frac=0.15, seed=42):
-    #helper to split dataset indices into train/val.
+def split_indices(n, val_frac=0.15, seed=42): #splits into train/validation lists
     idx = list(range(n))
     rng = random.Random(seed)
     rng.shuffle(idx)
-
     val_n = int(round(n * val_frac))
-
-    # train indices first, then val indices
     return idx[val_n:], idx[:val_n]
 
 
-class SubsetDataset(Dataset):
+class SubsetDataset(Dataset): #wrapper to view a subset of anmother dataset
     def __init__(self, base_ds, indices):
         self.base_ds = base_ds
         self.indices = indices
@@ -205,19 +186,18 @@ class SubsetDataset(Dataset):
         return len(self.indices)
 
     def __getitem__(self, i):
-        return self.base_ds[self.indices[i]]
+        return self.base_ds[self.indices[i]] #maps subset index to base dataset index
 
 
 #Models
 
-def make_resnet18_classifier(num_classes=3, pretrained=True):
+def make_resnet18_classifier(num_classes=3, pretrained=True): #ResNet18 classifier head
     m = models.resnet18(weights=models.ResNet18_Weights.DEFAULT if pretrained else None)
-    in_features = m.fc.in_features
-    m.fc = nn.Linear(in_features, num_classes)
+    m.fc = nn.Linear(m.fc.in_features, num_classes)
     return m
 
 
-class DoubleConv(nn.Module):
+class DoubleConv(nn.Module): #Unet block
     def __init__(self, in_ch, out_ch):
         super().__init__()
         self.net = nn.Sequential(
@@ -230,15 +210,13 @@ class DoubleConv(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-    def forward(self, x):
+    def forward(self, x): #passes it forwards
         return self.net(x)
 
 
-class UNetSmall(nn.Module):
+class UNetSmall(nn.Module): #small UNet for 256x256 grayscall segmentation
     def __init__(self, in_ch=1, base=32):
         super().__init__()
-
-        # Down / encoder path
         self.down1 = DoubleConv(in_ch, base)
         self.pool1 = nn.MaxPool2d(2)
 
@@ -248,10 +226,8 @@ class UNetSmall(nn.Module):
         self.down3 = DoubleConv(base * 2, base * 4)
         self.pool3 = nn.MaxPool2d(2)
 
-        # ottleneck
         self.mid = DoubleConv(base * 4, base * 8)
 
-        #decoder path
         self.up3 = nn.ConvTranspose2d(base * 8, base * 4, 2, stride=2)
         self.conv3 = DoubleConv(base * 8, base * 4)
 
@@ -261,19 +237,15 @@ class UNetSmall(nn.Module):
         self.up1 = nn.ConvTranspose2d(base * 2, base, 2, stride=2)
         self.conv1 = DoubleConv(base * 2, base)
 
-        #stroke logits
         self.out = nn.Conv2d(base, 1, 1)
 
-    def forward(self, x):
-        #Encoder
+    def forward(self, x): #forward pass through Unet
         d1 = self.down1(x)
         d2 = self.down2(self.pool1(d1))
         d3 = self.down3(self.pool2(d2))
 
-        #Bottleneck
         m = self.mid(self.pool3(d3))
 
-        #Decoder
         u3 = self.up3(m)
         u3 = torch.cat([u3, d3], dim=1)
         u3 = self.conv3(u3)
@@ -286,211 +258,172 @@ class UNetSmall(nn.Module):
         u1 = torch.cat([u1, d1], dim=1)
         u1 = self.conv1(u1)
 
-        return self.out(u1)
+        return self.out(u1)  # [B,1,H,W] logits
 
 
 #Training
 
-def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4):
-    """
-    Train the ResNet classifier (Normal / Ischemic / Hemorrhagic).
-    """
+def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4): #training classifier loop
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
     best_val = 0.0
 
-    for ep in range(1, epochs + 1):
+    for ep in range(1, epochs + 1): #loops over epoches (starts at 1)
         model.train()
         total, correct = 0, 0
         loss_sum = 0.0
 
-        for x, y in tqdm(train_loader, desc=f"[CLS] Epoch {ep}/{epochs}", leave=False):
+        for x, y in tqdm(train_loader, desc=f"[CLS] Epoch {ep}/{epochs}", leave=False): #batch loop with progress bar :D
             x, y = x.to(device), y.to(device)
             opt.zero_grad(set_to_none=True)
 
-            #Mixed precision on GPU
-            with torch.cuda.amp.autocast(enabled=(device.type == "cuda")):
+            with torch.cuda.amp.autocast(enabled=(device.type == "cuda")): #lets you use cuda if possible (sucks to be a amd gpu user rn... takes me 2 hours ;-;)
                 logits = model(x)
                 loss = F.cross_entropy(logits, y)
 
-            scaler.scale(loss).backward()
+            scaler.scale(loss).backward() #prevents underflow
             scaler.step(opt)
             scaler.update()
 
-            loss_sum += loss.item() * x.size(0)
+            loss_sum += loss.item() * x.size(0) #accumulates total loss over the samples
             total += x.size(0)
             correct += (logits.argmax(dim=1) == y).sum().item()
 
         train_acc = correct / max(1, total)
 
-        # Validation pass
-        model.eval()
-        vtotal, vcorrect = 0, 0
+        model.eval() #sets the model to eval mode
+        vtotal, vcorrect = 0, 0 #validation counters
         with torch.no_grad():
-            for x, y in val_loader:
+            for x, y in val_loader: #loop through validation data
                 x, y = x.to(device), y.to(device)
                 logits = model(x)
                 vtotal += x.size(0)
                 vcorrect += (logits.argmax(dim=1) == y).sum().item()
 
-        val_acc = vcorrect / max(1, vtotal)
-        print(f"[CLS] Epoch {ep}: train_acc={train_acc:.4f}, val_acc={val_acc:.4f}")
+        val_acc = vcorrect / max(1, vtotal) #validation accuracy
+        print(f"[CLS] Epoch {ep}: train_acc={train_acc:.4f}, val_acc={val_acc:.4f}") #reports epoch stats
+        best_val = max(best_val, val_acc) #update best validation accuracy
 
-        best_val = max(best_val, val_acc)
-
-    print(f"[CLS] Done. Best val_acc ~ {best_val:.4f}")
+    print(f"[CLS] Done :D. Best val_acc: {best_val:.4f}") #final training summary
 
 
-def dice_loss_from_logits(logits, targets, eps=1e-6):
-    """
-    Dice loss is great for segmentation because stroke pixels are usually a small fraction of the image.
-
-    logits:  [B,1,H,W]
-    targets: [B,H,W] in {0,1}
-    """
-    probs = torch.sigmoid(logits).squeeze(1)  # -> [B,H,W]
+def dice_loss_from_logits(logits, targets, eps=1e-6): #dice loss for segmentation
+    probs = torch.sigmoid(logits).squeeze(1)  # [B,H,W]
     targets = targets.float()
 
     inter = (probs * targets).sum(dim=(1, 2))
     union = probs.sum(dim=(1, 2)) + targets.sum(dim=(1, 2))
-
     dice = (2 * inter + eps) / (union + eps)
     return 1 - dice.mean()
 
 
 def train_segmenter(model, train_loader, val_loader, device, epochs=5, lr=1e-3):
-    """
-    Train the UNet segmenter.
-    Loss = 50% BCE-with-logits + 50% Dice loss (nice balance for binary masks).
-    """
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
     best_val = 1e9
 
     for ep in range(1, epochs + 1):
-        model.train()
-        loss_sum, n = 0.0, 0
+        model.train() #train mode
+        loss_sum, n = 0.0, 0 #accumlate lsoss nad sample count
 
-        for x, mask in tqdm(train_loader, desc=f"[SEG] Epoch {ep}/{epochs}", leave=False):
-            x, mask = x.to(device), mask.to(device)
-            opt.zero_grad(set_to_none=True)
+        for x, mask in tqdm(train_loader, desc=f"[SEG] Epoch {ep}/{epochs}", leave=False): #train batches
+            x, mask = x.to(device), mask.to(device) #mopve to device
+            opt.zero_grad(set_to_none=True) #clear gradents
 
-            with torch.cuda.amp.autocast(enabled=(device.type == "cuda")):
+            with torch.cuda.amp.autocast(enabled=(device.type == "cuda")): #mixed precision on GPU
                 logits = model(x)  # [B,1,H,W]
-
-                #Pixel-wise loss + overlap-based loss
                 bce = F.binary_cross_entropy_with_logits(logits.squeeze(1), mask)
                 dsc = dice_loss_from_logits(logits, mask)
                 loss = 0.5 * bce + 0.5 * dsc
 
-            scaler.scale(loss).backward()
-            scaler.step(opt)
-            scaler.update()
+            scaler.scale(loss).backward() #backprop scalled loss
+            scaler.step(opt) #step optimizer
+            scaler.update() #update scaler
 
-            loss_sum += loss.item() * x.size(0)
-            n += x.size(0)
+            loss_sum += loss.item() * x.size(0) #accumulated weigteed loss
+            n += x.size(0) #accumulated sample count
 
-        train_loss = loss_sum / max(1, n)
+        train_loss = loss_sum / max(1, n) #average training loss
 
-        # Validation pass
-        model.eval()
+        model.eval() #evaluate mode
         vloss_sum, vn = 0.0, 0
-        with torch.no_grad():
-            for x, mask in val_loader:
+        with torch.no_grad(): #no gradients
+            for x, mask in val_loader: #validation batches
                 x, mask = x.to(device), mask.to(device)
                 logits = model(x)
-
                 bce = F.binary_cross_entropy_with_logits(logits.squeeze(1), mask)
                 dsc = dice_loss_from_logits(logits, mask)
                 loss = 0.5 * bce + 0.5 * dsc
-
                 vloss_sum += loss.item() * x.size(0)
                 vn += x.size(0)
 
-        val_loss = vloss_sum / max(1, vn)
+        val_loss = vloss_sum / max(1, vn) #averagve validation loss
         print(f"[SEG] Epoch {ep}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}")
-
         best_val = min(best_val, val_loss)
 
-    print(f"[SEG] Done. Best val_loss ~ {best_val:.4f}")
+    print(f"[SEG] Done :D. Best validation loss : {best_val:.4f}")
 
-#ONNX export
 
-def export_classifier_onnx(model, out_path: Path, device):
-    """
-    Export classifier to ONNX so Flutter (onnxruntime) can run it.
-    """
-    model.eval().to(device)
+#ONNX export for flutter (NO MORE .DATA PLEZZZZ)
 
-    #Dummy input that matches the classifier input shape
-    dummy = torch.randn(1, 3, 224, 224, device=device)
+def export_onnx_single_file(model, dummy, out_path: Path): #if this doesnt work i might rip my hair out, ive retrained this like 7 times and each have taken 2 hours...
+    import onnx
+    from onnx import external_data_helper
 
+    out_path = Path(out_path) #ensures its a path
+    tmp = out_path.with_suffix(".tmp.onnx") #temporary onnx path
+    data_sidecar = Path(str(tmp) + ".data") #temporary sidecar path... but i need it to not stay or ill lose my marbles
+
+    #clean old leftovers
+    out_path.unlink(missing_ok=True)
+    tmp.unlink(missing_ok=True)
+    data_sidecar.unlink(missing_ok=True)
+    Path(str(out_path) + ".data").unlink(missing_ok=True)
+
+    #Export
     torch.onnx.export(
         model,
         dummy,
-        str(out_path),
+        str(tmp),
         export_params=True,
         opset_version=17,
         do_constant_folding=True,
         input_names=["input"],
-        output_names=["logits"],
-        dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
+        output_names=["output"],
+        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
     )
 
-    print(f"[ONNX] Saved classifier -> {out_path}")
+    #Load external data then save single-file
+    m = onnx.load_model(str(tmp), load_external_data=True)
+    external_data_helper.convert_model_from_external_data(m)
+    onnx.save_model(m, str(out_path), save_as_external_data=False)
+
+    #Cleanup temp
+    tmp.unlink(missing_ok=True)
+    data_sidecar.unlink(missing_ok=True)
+
+    #No more sidecar, if i see a data file i might just have to drop out... its like 6 am, and ive been trying to get this to work since 11pm, im going to lose any sense of self i have left if thsi dosent work
+    Path(str(out_path) + ".data").unlink(missing_ok=True)
+
+    print(f"Single-file saved -> {out_path}")
 
 
-def export_segmenter_onnx(model, out_path: Path, device, h=256, w=256):
-    """
-    Export segmenter to ONNX.
-    Output is mask logits (you sigmoid + threshold later in Flutter).
-    """
-    model.eval().to(device)
-
-    #Dummy input matching UNet shape
-    dummy = torch.randn(1, 1, h, w, device=device)
-
-    torch.onnx.export(
-        model,
-        dummy,
-        str(out_path),
-        export_params=True,
-        opset_version=17,
-        do_constant_folding=True,
-        input_names=["input"],
-        output_names=["mask_logits"],
-        dynamic_axes={"input": {0: "batch"}, "mask_logits": {0: "batch"}},
-    )
-
-    print(f"[ONNX] Saved segmenter -> {out_path}")
 
 
-def main():
-    """
-    End-to-end pipeline:
-      1) unzip datasets
-      2) find the real PNG folders
-      3) train classifier (ResNet18) -> export ONNX
-      4) train segmenter (UNet) -> export ONNX
-    """
+
+#Main
+
+def main(): #main function (where the magic happens ;) )
     parser = argparse.ArgumentParser()
-
-    parser.add_argument("--data_root", type=str, default="extracted_data",
-                        help="Where to extract the zips")
-    parser.add_argument("--out_dir", type=str, default="onnx_out",
-                        help="Where to save ONNX models")
-
+    parser.add_argument("--data_root", type=str, default="extracted_data")
+    parser.add_argument("--out_dir", type=str, default="onnx_out")
     parser.add_argument("--epochs_cls", type=int, default=5)
     parser.add_argument("--epochs_seg", type=int, default=5)
     parser.add_argument("--batch", type=int, default=32)
     parser.add_argument("--seed", type=int, default=42)
-
-    parser.add_argument("--no_pretrained", action="store_true",
-                        help="If set, do NOT use ImageNet pretrained weights for ResNet18")
-
-    parser.add_argument("--diff_thresh", type=int, default=25,
-                        help="How different overlay-vs-original must be to call it 'stroke'")
-
+    parser.add_argument("--no_pretrained", action="store_true")
+    parser.add_argument("--diff_thresh", type=int, default=25)
+    parser.add_argument("--no_cleanup", action="store_true", help="Disable mask cleanup (speckle removal)")
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -502,44 +435,27 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Dataset zip files (expected in the same folder as this script)
+    #zip file names **IMP, IF YOU ADD NEW ONES MAKE SURE TO COME HERE!!!!***
     z_hem = Path("Hemorrhagic Stroke.zip")
     z_isc = Path("Ischemic Stroke.zip")
     z_nor = Path("Normal.zip")
     z_isc_ov = Path("Ischemic Overlay.zip")
     z_hem_ov = Path("Hemorrhagic Overlay.zip")
 
-    #if any zip is missing, fail early with a clear message
     for z in [z_hem, z_isc, z_nor, z_isc_ov, z_hem_ov]:
         if not z.exists():
-            raise FileNotFoundError(
-                f"Missing {z}. Put the zip in the same folder as this script, "
-                f"or edit the zip paths in the script."
-            )
+            raise FileNotFoundError(f"Missing {z}.")
 
-    # Extract zips (only if needed)
     unzip_if_needed(z_hem, data_root / "Hemorrhagic Stroke")
     unzip_if_needed(z_isc, data_root / "Ischemic Stroke")
     unzip_if_needed(z_nor, data_root / "Normal")
-    unzip_if_needed(z_isc_ov, data_root / "Ischemic overlay")
+    unzip_if_needed(z_isc_ov, data_root / "Ischemic Overlay")
     unzip_if_needed(z_hem_ov, data_root / "Hemorrhagic Overlay")
 
-    def find_png_dir(root: Path) -> Path:
-        """
-        Some zips include an extra nested folder layer.
-        This finds the folder that actually contains the PNGs (and picks the biggest one).
-        """
-        png_dirs = sorted({p.parent for p in root.rglob("*.png")})
-        if not png_dirs:
-            raise RuntimeError(f"No PNG files found under {root}")
-        best = max(png_dirs, key=lambda d: len(list(d.glob("*.png"))))
-        return best
-
-    # Find the real directories that contain images
     hemorr_dir = find_png_dir(data_root / "Hemorrhagic Stroke")
     ischemic_dir = find_png_dir(data_root / "Ischemic Stroke")
     normal_dir = find_png_dir(data_root / "Normal")
-    ischemic_overlay_dir = find_png_dir(data_root / "Ischemic overlay")
+    ischemic_overlay_dir = find_png_dir(data_root / "Ischemic Overlay")
     hemorr_overlay_dir = find_png_dir(data_root / "Hemorrhagic Overlay")
 
     print("Found dirs:")
@@ -549,68 +465,58 @@ def main():
     print("  Ischemic Overlay:", ischemic_overlay_dir)
     print("  Hemorrhagic Overlay:", hemorr_overlay_dir)
 
-    #Classification: ResNet18
-
-    # Preprocessing for classifier (224x224 + ImageNet normalization)
+    #CLASSIFIER transforms
     cls_tf = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225]),
     ])
 
     cls_ds = StrokeClassificationDataset(normal_dir, ischemic_dir, hemorr_dir, transform=cls_tf)
     tr_idx, va_idx = split_indices(len(cls_ds), val_frac=0.15, seed=args.seed)
-
     cls_train = SubsetDataset(cls_ds, tr_idx)
     cls_val = SubsetDataset(cls_ds, va_idx)
 
     cls_train_loader = DataLoader(cls_train, batch_size=args.batch, shuffle=True, num_workers=2, pin_memory=True)
     cls_val_loader = DataLoader(cls_val, batch_size=args.batch, shuffle=False, num_workers=2, pin_memory=True)
-
-    # Build + train the classifier
     cls_model = make_resnet18_classifier(num_classes=3, pretrained=(not args.no_pretrained)).to(device)
     train_classifier(cls_model, cls_train_loader, cls_val_loader, device, epochs=args.epochs_cls, lr=1e-4)
+    cls_model.eval()
+    dummy_cls = torch.randn(1, 3, 224, 224, device=device)
+    export_onnx_single_file(cls_model, dummy_cls, out_dir / "stroke_type_classifier_single.onnx")
 
-    # Export classifier to ONNX for Flutter
-    export_classifier_onnx(cls_model, out_dir / "stroke_type_classifier.onnx", device)
 
-    #Segmentation: UNet
-
-    #Simple normalization for 1-channel CT slice inputs
-    seg_img_tf = transforms.Normalize(mean=[0.5], std=[0.5])
-
+    #SEGMENTER dataset
     seg_ds = StrokeSegmentationDataset(
         ischemic_dir=ischemic_dir,
         hemorr_dir=hemorr_dir,
         ischemic_overlay_dir=ischemic_overlay_dir,
         hemorr_overlay_dir=hemorr_overlay_dir,
-        img_transform=seg_img_tf,
-        mask_size=(256, 256),
-        diff_thresh=args.diff_thresh
+        size=(256, 256),
+        diff_thresh=args.diff_thresh,
+        cleanup=(not args.no_cleanup),
     )
 
     tr_idx, va_idx = split_indices(len(seg_ds), val_frac=0.15, seed=args.seed)
     seg_train = SubsetDataset(seg_ds, tr_idx)
     seg_val = SubsetDataset(seg_ds, va_idx)
 
-    # Segmentation is heavier than classification, so use a smaller batch size
     seg_bs = max(4, args.batch // 4)
-
     seg_train_loader = DataLoader(seg_train, batch_size=seg_bs, shuffle=True, num_workers=2, pin_memory=True)
     seg_val_loader = DataLoader(seg_val, batch_size=seg_bs, shuffle=False, num_workers=2, pin_memory=True)
 
     seg_model = UNetSmall(in_ch=1, base=32).to(device)
     train_segmenter(seg_model, seg_train_loader, seg_val_loader, device, epochs=args.epochs_seg, lr=1e-3)
+    seg_model.eval()
+    dummy_seg = torch.randn(1, 1, 256, 256, device=device)
+    export_onnx_single_file(seg_model, dummy_seg, out_dir / "stroke_location_segmenter_single.onnx")
 
-    # Export segmenter to ONNX for Flutter
-    export_segmenter_onnx(seg_model, out_dir / "stroke_location_segmenter.onnx", device, h=256, w=256)
+
 
     print("\nAll done.")
     print("ONNX models saved to:", out_dir.resolve())
     print("Files:")
-    print(" - stroke_type_classifier.onnx")
-    print(" - stroke_location_segmenter.onnx")
+    print(" - stroke_type_classifier_single.onnx")
+    print(" - stroke_location_segmenter_single.onnx")
 
 
 if __name__ == "__main__":
