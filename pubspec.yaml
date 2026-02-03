@@ -29,5 +29,3 @@ flutter:
   assets:
     - assets/models/stroke_type_classifier_single.onnx
     - assets/models/stroke_location_segmenter_single.onnx
-    - assets/models/stroke_type_classifier.onnx.data
-    - assets/models/stroke_location_segmenter.onnx.data
