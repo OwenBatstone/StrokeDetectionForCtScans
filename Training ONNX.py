@@ -12,6 +12,8 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import models, transforms
 from tqdm import tqdm
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+
 
 
 #Utilities
@@ -306,6 +308,45 @@ def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4)
 
     print(f"[CLS] Done :D. Best val_acc: {best_val:.4f}") #final training summary
 
+def evaluate_classifier(model, loader, device):
+    """
+    Runs full evaluation and prints:
+    - confusion matrix
+    - precision / recall / f1
+    - overall accuracy
+    """
+
+    model.eval()
+
+    all_preds = []
+    all_targets = []
+
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+
+            logits = model(x)
+            preds = logits.argmax(dim=1).cpu().numpy()
+
+            all_preds.extend(preds)
+            all_targets.extend(y.numpy())
+
+    #metrics
+    acc = accuracy_score(all_targets, all_preds)
+    cm = confusion_matrix(all_targets, all_preds)
+
+    print("\nCLASSIFICATION REPORT:")
+    print(f"Overall Accuracy: {acc:.4f}\n")
+
+    print("Confusion Matrix:")
+    print(cm)
+
+    print("\nClassification Report:")
+    print(classification_report(
+        all_targets,
+        all_preds,
+        target_names=["Normal", "Ischemic", "Hemorrhagic"]
+    ))
 
 def dice_loss_from_logits(logits, targets, eps=1e-6): #dice loss for segmentation
     probs = torch.sigmoid(logits).squeeze(1)  # [B,H,W]
@@ -362,6 +403,74 @@ def train_segmenter(model, train_loader, val_loader, device, epochs=5, lr=1e-3):
         best_val = min(best_val, val_loss)
 
     print(f"[SEG] Done :D. Best validation loss : {best_val:.4f}")
+
+def evaluate_segmenter(model, loader, device, threshold=0.5, eps=1e-7):
+    """
+    Prints segmentation metrics on the validation set:
+    - Dice, IoU
+    - pixel precision/recall/F1
+    - pixel confusion matrix (TP, FP, FN, TN)
+
+    threshold: probability threshold after sigmoid
+    """
+    model.eval()
+
+    # Accumulate pixel confusion totals across the whole val set
+    TP = FP = FN = TN = 0
+
+    dice_scores = []
+    iou_scores = []
+
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+            y = y.to(device)  # [B,H,W] in {0,1}
+
+            logits = model(x)                 # [B,1,H,W]
+            probs = torch.sigmoid(logits)     # [B,1,H,W]
+            pred = (probs.squeeze(1) > threshold).float()  # [B,H,W]
+
+            # ----- per-batch confusion -----
+            tp = (pred * y).sum().item()
+            fp = (pred * (1 - y)).sum().item()
+            fn = ((1 - pred) * y).sum().item()
+            tn = ((1 - pred) * (1 - y)).sum().item()
+
+            TP += tp
+            FP += fp
+            FN += fn
+            TN += tn
+
+            # ----- Dice + IoU (batch-averaged) -----
+            inter = (pred * y).sum(dim=(1, 2))
+            union = pred.sum(dim=(1, 2)) + y.sum(dim=(1, 2))
+            dice = (2 * inter + eps) / (union + eps)
+
+            iou = (inter + eps) / (pred.sum(dim=(1, 2)) + y.sum(dim=(1, 2)) - inter + eps)
+
+            dice_scores.extend(dice.detach().cpu().tolist())
+            iou_scores.extend(iou.detach().cpu().tolist())
+
+    # Dataset-level metrics from accumulated confusion
+    precision = TP / (TP + FP + eps)
+    recall    = TP / (TP + FN + eps)
+    f1        = 2 * precision * recall / (precision + recall + eps)
+    acc       = (TP + TN) / (TP + TN + FP + FN + eps)
+
+    dice_mean = float(np.mean(dice_scores)) if dice_scores else 0.0
+    iou_mean  = float(np.mean(iou_scores)) if iou_scores else 0.0
+
+    print("\nSEGMENTATION REPORT:")
+    print(f"Threshold: {threshold}")
+    print(f"Pixel Accuracy: {acc:.4f}")
+    print(f"Pixel Precision: {precision:.4f}")
+    print(f"Pixel Recall:    {recall:.4f}")
+    print(f"Pixel F1:        {f1:.4f}")
+    print(f"Mean Dice:       {dice_mean:.4f}")
+    print(f"Mean IoU:        {iou_mean:.4f}")
+
+    print("\nPixel Confusion (Totals over val set):")
+    print(f"TP={TP:.0f}, FP={FP:.0f}, FN={FN:.0f}, TN={TN:.0f}")
 
 
 #ONNX export for flutter (NO MORE .DATA PLEZZZZ)
@@ -480,6 +589,7 @@ def main(): #main function (where the magic happens ;) )
     cls_val_loader = DataLoader(cls_val, batch_size=args.batch, shuffle=False, num_workers=2, pin_memory=True)
     cls_model = make_resnet18_classifier(num_classes=3, pretrained=(not args.no_pretrained)).to(device)
     train_classifier(cls_model, cls_train_loader, cls_val_loader, device, epochs=args.epochs_cls, lr=1e-4)
+    evaluate_classifier(cls_model, cls_val_loader, device)
     cls_model.eval()
     dummy_cls = torch.randn(1, 3, 224, 224, device=device)
     export_onnx_single_file(cls_model, dummy_cls, out_dir / "stroke_type_classifier_single.onnx")
@@ -506,6 +616,7 @@ def main(): #main function (where the magic happens ;) )
 
     seg_model = UNetSmall(in_ch=1, base=32).to(device)
     train_segmenter(seg_model, seg_train_loader, seg_val_loader, device, epochs=args.epochs_seg, lr=1e-3)
+    evaluate_segmenter(seg_model, seg_val_loader, device, threshold=0.5)
     seg_model.eval()
     dummy_seg = torch.randn(1, 1, 256, 256, device=device)
     export_onnx_single_file(seg_model, dummy_seg, out_dir / "stroke_location_segmenter_single.onnx")
