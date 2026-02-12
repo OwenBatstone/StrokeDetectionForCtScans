@@ -267,7 +267,7 @@ class UNetSmall(nn.Module): #small UNet for 256x256 grayscall segmentation
 
 def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4): #training classifier loop
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
-    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
+    scaler = torch.amp.GradScaler(enabled=(device.type == "cuda"))
     best_val = 0.0
 
     for ep in range(1, epochs + 1): #loops over epoches (starts at 1)
@@ -279,7 +279,7 @@ def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4)
             x, y = x.to(device), y.to(device)
             opt.zero_grad(set_to_none=True)
 
-            with torch.cuda.amp.autocast(enabled=(device.type == "cuda")): #lets you use cuda if possible (sucks to be a amd gpu user rn... takes me 2 hours ;-;)
+            with torch.autocast(device_type=device.type, dtype=torch.float16): #lets you use cuda if possible (sucks to be a amd gpu user rn... takes me 2 hours ;-;)
                 logits = model(x)
                 loss = F.cross_entropy(logits, y)
 
@@ -360,7 +360,7 @@ def dice_loss_from_logits(logits, targets, eps=1e-6): #dice loss for segmentatio
 
 def train_segmenter(model, train_loader, val_loader, device, epochs=5, lr=1e-3):
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
-    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
+    scaler = torch.amp.GradScaler(enabled=(device.type == "cuda"))
     best_val = 1e9
 
     for ep in range(1, epochs + 1):
@@ -371,7 +371,7 @@ def train_segmenter(model, train_loader, val_loader, device, epochs=5, lr=1e-3):
             x, mask = x.to(device), mask.to(device) #mopve to device
             opt.zero_grad(set_to_none=True) #clear gradents
 
-            with torch.cuda.amp.autocast(enabled=(device.type == "cuda")): #mixed precision on GPU
+            with torch.amp.autocast(enabled=(device.type == "cuda")): #mixed precision on GPU
                 logits = model(x)  # [B,1,H,W]
                 bce = F.binary_cross_entropy_with_logits(logits.squeeze(1), mask)
                 dsc = dice_loss_from_logits(logits, mask)

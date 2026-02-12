@@ -460,7 +460,7 @@ class StrokeInferenceService {
     final outputs = await session.run(inputs); //runs the inference
     final outVal = outputs[outputName] ?? outputs.values.first;
 
-    final raw = await outVal!.asList(); //converets the output to a dart list
+    final raw = await outVal.asList(); //converets the output to a dart list
     final flat = _flattenToDoubles(raw); //flattens the list
 
     final probs = _softmax(flat); //converst hte logits to a probability
@@ -489,7 +489,7 @@ Future<MaskPred> predictMask(img.Image src) async { //runs segmentation to make 
   final outputs = await session.run(inputs); //runs the inference
   final outVal = outputs[outputName] ?? outputs.values.first;
 
-  final raw = await outVal!.asList();
+  final raw = await outVal.asList();
   final flat = _flattenToDoubles(raw);
 
   final hw = segH * segW; //number of pixels in mask
