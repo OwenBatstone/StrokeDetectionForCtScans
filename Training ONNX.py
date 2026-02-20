@@ -13,6 +13,8 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import models, transforms
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+import pydicom as dicom
+import cv2
 
 
 
@@ -23,6 +25,60 @@ def set_seed(seed: int = 42): #sets all rng seeds to 42 for repeatability
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+def dicom_to_images(input_folder, output_folder, use_clahe=True):
+    os.makedirs(output_folder, exist_ok=True)
+
+    def apply_window(img, center, width):
+        lower = center - width / 2
+        upper = center + width / 2
+        img = np.clip(img, lower, upper)
+        img = (img - lower) / (upper - lower) * 255.0
+        return img.astype(np.uint8)
+
+    for n, filename in enumerate(os.listdir(input_folder)):
+        if not filename.lower().endswith(".dcm"):
+            continue
+
+        try:
+            ds = dicom.dcmread(os.path.join(input_folder, filename))
+            img = ds.pixel_array.astype(np.float32)
+
+            # Convert to Hounsfield Units
+            if hasattr(ds, 'RescaleSlope') and hasattr(ds, 'RescaleIntercept'):
+                img = img * float(ds.RescaleSlope) + float(ds.RescaleIntercept)
+
+            # Use DICOM window if available
+            if hasattr(ds, 'WindowCenter') and hasattr(ds, 'WindowWidth'):
+                wc = ds.WindowCenter
+                ww = ds.WindowWidth
+                wc = wc[0] if isinstance(wc, dicom.multival.MultiValue) else wc
+                ww = ww[0] if isinstance(ww, dicom.multival.MultiValue) else ww
+                img = apply_window(img, float(wc), float(ww))
+            else:
+                # Brain hemorrhage fallback window
+                img = apply_window(img, center=60, width=150)
+
+            if use_clahe:
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                img = clahe.apply(img)
+
+            out_path = os.path.join(output_folder, filename.replace(".dcm", ".png"))
+            cv2.imwrite(out_path, img)
+
+            if n % 50 == 0:
+                print(f"{n} images converted")
+
+        except Exception as e:
+            print(f"Skipped {filename}: {e}")
+
+
+dicom_to_images(
+    input_folder=r"C:\DeepLearningTest\Brain_Stroke_CT_Dataset\Bleeding\DICOM",
+    output_folder=r"C:\DeepLearningTest\Data\ConvertedDICOM"
+)
+
+
 
 
 def unzip_if_needed(zip_path: Path, out_dir: Path): #if a zip file is given unzips it
