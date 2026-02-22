@@ -29,7 +29,7 @@ def set_seed(seed: int = 42): #sets all rng seeds to 42 for repeatability
 def dicom_to_images(input_folder, output_folder, use_clahe=True):
     os.makedirs(output_folder, exist_ok=True)
 
-    def apply_window(img, center, width):
+    def apply_window(img, center, width): #specify window 
         lower = center - width / 2
         upper = center + width / 2
         img = np.clip(img, lower, upper)
