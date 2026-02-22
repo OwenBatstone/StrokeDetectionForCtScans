@@ -9,10 +9,47 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-void main() {
+final supabase = Supabase.instance.client; 
+
+
+final supabase_url = dotenv.env['url'];
+final anon_user = dotenv.env['anonUrl'];
+     
+
+
+
+Future<void> main() async {
+  //initilize connection to supabasedatabase
+  WidgetsFlutterBinding.ensureInitialized();
+  await Supabase.initialize(
+    url:'https://pxanrviwtzuexbcztbnk.supabase.co' ,
+    anonKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4YW5ydml3dHp1ZXhiY3p0Ym5rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MTE2MzMsImV4cCI6MjA4NzI4NzYzM30.G3Px4yuOhE-1Dc3lwzx8IQnLN__1esRM1VpIJwEe-Bg' ,
+  );
+
+
   runApp(const MyApp());
 }
+
+
+
+Future<List<Map<String, dynamic>>?>fetchInstruments() async{ 
+  try{ 
+    final List<Map<String,dynamic>> data = await supabase
+    .from('Employee')
+    .select("*");
+    return data;
+  } on PostgrestException catch (error) {
+    print('Error fetching data: ${error.message}');
+    return null;
+  }catch (error){ 
+    print("Error with supabase: ${error}");
+    return null; 
+  }
+}
+
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -47,6 +84,37 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
     _svc.dispose();
     super.dispose();
   }
+  //SelectTest Function 
+  Future<void> _testSelect() async { 
+    setState(() {
+      _status = "Running Select Test"; 
+    });
+
+    try{ 
+      final data = await fetchInstruments();
+
+      if (data == null || data.isEmpty) {
+        setState((){
+          _status = "No Rows To Select"; 
+        });
+        return; 
+      }
+
+       
+        print(data);
+      
+
+      setState(() {
+        _status = "select Results : ${data}";
+      });
+    } catch (e) { 
+      setState(() {
+        _status = "Select Row Error : ${e}"; 
+      });
+    }
+
+  }
+
 
   Future<void> _pickZipAndRun() async {
     setState(() {
@@ -210,6 +278,13 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
               icon: const Icon(Icons.upload_file),
               label: const Text('Upload ZIP + Run'),
             ),
+            const SizedBox(height: 10), 
+            FilledButton.icon(
+              onPressed: _busy ? null: _testSelect,
+              icon: const Icon(Icons.storage),
+              label: const Text('Test Database SELECT'),
+              ),
+            
             const SizedBox(height: 10),
             Text(_status),
             if (_modelInfo.isNotEmpty) ...[
@@ -460,7 +535,7 @@ class StrokeInferenceService {
     final outputs = await session.run(inputs); //runs the inference
     final outVal = outputs[outputName] ?? outputs.values.first;
 
-    final raw = await outVal!.asList(); //converets the output to a dart list
+    final raw = await outVal.asList(); //converets the output to a dart list
     final flat = _flattenToDoubles(raw); //flattens the list
 
     final probs = _softmax(flat); //converst hte logits to a probability
@@ -489,7 +564,7 @@ Future<MaskPred> predictMask(img.Image src) async { //runs segmentation to make 
   final outputs = await session.run(inputs); //runs the inference
   final outVal = outputs[outputName] ?? outputs.values.first;
 
-  final raw = await outVal!.asList();
+  final raw = await outVal.asList();
   final flat = _flattenToDoubles(raw);
 
   final hw = segH * segW; //number of pixels in mask

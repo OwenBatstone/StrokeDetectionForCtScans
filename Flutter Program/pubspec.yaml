@@ -10,14 +10,18 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations: 
+    sdk: flutter
+    
+  supabase_flutter: ^2.0.0
   cupertino_icons: ^1.0.8
-
   archive: ^3.6.1
   file_picker: ^8.0.0
   image: ^4.2.0
-
   flutter_onnxruntime: ^1.6.1
+  flutter_dotenv: ^6.0.0
 
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -29,3 +33,4 @@ flutter:
   assets:
     - assets/models/stroke_type_classifier_single.onnx
     - assets/models/stroke_location_segmenter_single.onnx
+    - keys.env
