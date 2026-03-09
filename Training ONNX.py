@@ -73,10 +73,10 @@ def dicom_to_images(input_folder, output_folder, use_clahe=True):
             print(f"Skipped {filename}: {e}")
 
 
-dicom_to_images(
-    input_folder=r"C:\DeepLearningTest\Brain_Stroke_CT_Dataset\Bleeding\DICOM",
-    output_folder=r"C:\DeepLearningTest\Data\ConvertedDICOM"
-)
+# dicom_to_images(
+#     input_folder=r"C:\DeepLearningTest\Brain_Stroke_CT_Dataset\Bleeding\DICOM",
+#     output_folder=r"C:\DeepLearningTest\Data\ConvertedDICOM"
+# )
 
 
 
@@ -362,7 +362,7 @@ def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4)
         print(f"[CLS] Epoch {ep}: train_acc={train_acc:.4f}, val_acc={val_acc:.4f}") #reports epoch stats
         best_val = max(best_val, val_acc) #update best validation accuracy
 
-    print(f"[CLS] Done :D. Best val_acc: {best_val:.4f}") #final training summary
+    print(f"[CLS] Done :D. Best val_acc: {best_val:.4f} \nd") #final training summary
 
 def evaluate_classifier(model, loader, device):
     """
@@ -427,7 +427,7 @@ def train_segmenter(model, train_loader, val_loader, device, epochs=5, lr=1e-3):
             x, mask = x.to(device), mask.to(device) #mopve to device
             opt.zero_grad(set_to_none=True) #clear gradents
 
-            with torch.amp.autocast(enabled=(device.type == "cuda")): #mixed precision on GPU
+            with torch.amp.autocast(device_type = device.type, enabled=(device.type == "cude")): #mixed precision on GPU
                 logits = model(x)  # [B,1,H,W]
                 bce = F.binary_cross_entropy_with_logits(logits.squeeze(1), mask)
                 dsc = dice_loss_from_logits(logits, mask)
