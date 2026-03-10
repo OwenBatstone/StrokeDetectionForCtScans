@@ -2,6 +2,8 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 //widgets 
 import '../widgets/slice_viewer_screen.dart';
@@ -102,6 +104,8 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
 
       setState(() => _status = 'Running inference on ${images.length} slices...'); //shows how many slices are analyzed (takes about 1 mins per 100-200)
 
+      
+
       //slice by slice results are here, give state at the end
       final out = <SliceResult>[];
 
@@ -148,6 +152,31 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
           maskScore: seg.maskScore, //about how much of the image is filled by the leision
         ));
       }
+      final supabase = Supabase.instance.client;
+      //generate scan ID for batch
+      final scanId = const Uuid().v4();
+      //genereate sliceId for each slice in batch 
+      final sliceIds = List.generate(images.length, (_) => const Uuid().v4());
+
+      final userId = supabase.auth.currentUser?.id;
+
+      //uploading paitient summary
+      setState(() => _status = 'Uploading slices');
+      final imageUrls = <String>[]; 
+      for( int i =0; i < out.length; i++){
+        final bytes = out[i].originalPng; 
+        if(bytes == null) {
+          imageUrls.add('');continue;
+          }
+        final path = '$userId/$scanId/${sliceIds[i]}.png';
+        await supabase.storage.from('scan_images').uploadBinary(path, bytes);
+        imageUrls.add(path);
+
+
+      }
+
+      
+
 
       //Overall prediciton
       PatientSummary? summary; //checks if we have usable slices
@@ -160,14 +189,28 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
         //Overall summary object *****COME HERE FOR DATABASE STUFF!!*****
         
         summary = PatientSummary(
+          run_by : userId,
           label: StrokeInferenceService.labels[idx], //final choice
           confidence: probs[idx], //probability
           perClassProb: probs, //all classes probabilities
           slicesUsed: usedForAgg, //the slices that contributed
           totalSlices: images.length, //total slices in the zip
+          scanId: scanId,
+          slicesIds:sliceIds,
+          imageUrl:imageUrls ,
         );
-
+        print('usedForAgg: $usedForAgg');
+        print('summary: $summary');
+        print('calling insertPatientSummary...');
         await insertPatientSummary(summary);
+        print('insert done');
+        await insertPatientSummary(summary);
+
+        print('usedForAgg: $usedForAgg');
+print('summary: $summary');
+print('calling insertPatientSummary...');
+await insertPatientSummary(summary);
+print('insert done');
       }
       //set the UI once at the end (way faster then doing it after each slice is ready, could change later if we value showing them as they come)
       setState(() {
