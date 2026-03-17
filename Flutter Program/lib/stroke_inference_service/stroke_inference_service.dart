@@ -17,8 +17,8 @@ import '../utils/flatten_to_doubles.dart';
 
 class StrokeInferenceService {
   //Asset paths
-  static const String clsAsset = 'assets/models/stroke_type_classifier_single.onnx';
-  static const String segAsset = 'assets/models/stroke_location_segmenter_single.onnx';
+  static const String clsAsset = 'assets/models/classifier.onnx';
+  static const String segAsset = 'assets/models/segmenter.onnx';
 
   //same as training label order
   static const List<String> labels = ['Normal', 'Ischemic', 'Hemorrhagic'];
