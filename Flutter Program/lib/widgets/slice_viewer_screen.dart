@@ -2,16 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../data_classes/slice_results.dart';
 import '../widgets/dot_painter.dart';
-
-class SliceViewerScreen extends StatelessWidget {
+class SliceViewerScreen extends StatefulWidget {
   final SliceResult result;
   const SliceViewerScreen({super.key, required this.result});
 
   @override
+  State<SliceViewerScreen> createState() => _SliceViewerScreenState();
+  }
+
+class _SliceViewerScreenState extends State<SliceViewerScreen>{
+  bool _showOverlay = true;
+  @override
   Widget build(BuildContext context) {
+    final result= widget.result;
     final baseBytes = result.originalPng!; //base image
     final overlayBytes = result.maskOverlayPng; //mask bytes or null if none
-    final c = result.centroid; //centroid coordinates, or null if none exists
 
     return Scaffold(
       appBar: AppBar(
@@ -23,16 +28,30 @@ class SliceViewerScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start, //moves all text to the left
           children: [
             Text(
-              'Type: ${result.typeLabel} • ${(result.confidence * 100).toStringAsFixed(1)}%',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              overlayBytes == null || c == null
-                  ? 'No location mask available for this slice.' //if it cant show a location mask
-                  : 'Location mask confidence: ${(result.maskScore * 100).toStringAsFixed(1)}%',
+              overlayBytes == null
+                  ? 'No location mask available for this slice.'
+                  : 'Location mask: ${(result.maskScore * 100).toStringAsFixed(1)}%',
             ),
             const SizedBox(height: 12),
+
+            if (overlayBytes != null)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilterChip(
+                  selected: _showOverlay,
+                  label: const Text('Show Overlay'),
+                  onSelected: (value) {
+                    setState(() {
+                      _showOverlay = value;
+                    });
+                  },
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
             Expanded(
               child: Center(
                 child: AspectRatio(
@@ -41,11 +60,8 @@ class SliceViewerScreen extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       Image.memory(baseBytes, fit: BoxFit.contain),
-                      if (overlayBytes != null) Image.memory(overlayBytes, fit: BoxFit.contain),
-                      if (c != null) //if centroid exists, put it in place
-                        CustomPaint(
-                          painter: DotPainter(nx: c.dx, ny: c.dy),
-                        ),
+                      if (_showOverlay && overlayBytes != null)
+                        Image.memory(overlayBytes, fit: BoxFit.contain),
                     ],
                   ),
                 ),
