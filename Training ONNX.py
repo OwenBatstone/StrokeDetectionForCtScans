@@ -15,7 +15,7 @@ from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 import pydicom as dicom
 import cv2
-
+import json
 
 
 #Utilities
@@ -320,16 +320,20 @@ class UNetSmall(nn.Module): #small UNet for 256x256 grayscall segmentation
 
 
 #Training
-
-def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4): #training classifier loop
+#added class weights
+def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4, class_weights=None): #training classifier loop
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
     scaler = torch.amp.GradScaler(enabled=(device.type == "cuda"))
     best_val = 0.0
+    best_state = None        # stores best weights
+    train_accs = []         # stores train / loss
+    val_accs = []
+    train_losses = []
 
     for ep in range(1, epochs + 1): #loops over epoches (starts at 1)
         model.train()
         total, correct = 0, 0
-        loss_sum = 0.0
+        loss_sum = 0.0 
 
         for x, y in tqdm(train_loader, desc=f"[CLS] Epoch {ep}/{epochs}", leave=False): #batch loop with progress bar :D
             x, y = x.to(device), y.to(device)
@@ -337,7 +341,7 @@ def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4)
 
             with torch.autocast(device_type=device.type, dtype=torch.float16): #lets you use cuda if possible (sucks to be a amd gpu user rn... takes me 2 hours ;-;)
                 logits = model(x)
-                loss = F.cross_entropy(logits, y)
+                loss = F.cross_entropy(logits, y, weight=class_weights)
 
             scaler.scale(loss).backward() #prevents underflow
             scaler.step(opt)
@@ -358,11 +362,28 @@ def train_classifier(model, train_loader, val_loader, device, epochs=5, lr=1e-4)
                 vtotal += x.size(0)
                 vcorrect += (logits.argmax(dim=1) == y).sum().item()
 
+        
+        # added train_loss and gap for better per epoch tracking
         val_acc = vcorrect / max(1, vtotal) #validation accuracy
-        print(f"[CLS] Epoch {ep}: train_acc={train_acc:.4f}, val_acc={val_acc:.4f}") #reports epoch stats
-        best_val = max(best_val, val_acc) #update best validation accuracy
+        train_loss = loss_sum / max(1, total)
+        gap = train_acc - val_acc
+        print(f"[CLS] Epoch {ep}/{epochs}: train_loss={train_loss:.4f}, train_acc={train_acc:.4f}, val_acc={val_acc:.4f}, gap={gap:+.4f}") #reports epoch stats
+        train_accs.append(train_acc)        # append lines
+        val_accs.append(val_acc)
+        train_losses.append(train_loss)
+        
+        # save best checkpoint
+        if val_acc > best_val:
+            best_val = val_acc
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            print(f"  -> New best val_acc: {best_val:.4f}, saving checkpoint")
+            
+    # restore best weights
+    if best_state is not None:
+        model.load_state_dict({k: v.to(device) for k, v in best_state.items()})     
+    print(f"[CLS] Done :D. Best val_acc: {best_val:.4f} (restored)")    #final training summary
 
-    print(f"[CLS] Done :D. Best val_acc: {best_val:.4f} \nd") #final training summary
+    return {"train_acc": train_accs, "val_acc": val_accs, "train_loss": train_losses}   # return for plots
 
 def evaluate_classifier(model, loader, device):
     """
@@ -416,8 +437,13 @@ def dice_loss_from_logits(logits, targets, eps=1e-6): #dice loss for segmentatio
 
 def train_segmenter(model, train_loader, val_loader, device, epochs=5, lr=1e-3):
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)   # cosine LR schedule
     scaler = torch.amp.GradScaler(enabled=(device.type == "cuda"))
     best_val = 1e9
+    best_state = None       # stores best weights      
+    train_losses_list = []  # logging for train, val loss and dices
+    val_losses_list = []
+    val_dices_list = []
 
     for ep in range(1, epochs + 1):
         model.train() #train mode
@@ -427,7 +453,7 @@ def train_segmenter(model, train_loader, val_loader, device, epochs=5, lr=1e-3):
             x, mask = x.to(device), mask.to(device) #mopve to device
             opt.zero_grad(set_to_none=True) #clear gradents
 
-            with torch.amp.autocast(device_type = device.type, enabled=(device.type == "cude")): #mixed precision on GPU
+            with torch.amp.autocast(device_type = device.type, enabled=(device.type == "cuda")): #mixed precision on GPU
                 logits = model(x)  # [B,1,H,W]
                 bce = F.binary_cross_entropy_with_logits(logits.squeeze(1), mask)
                 dsc = dice_loss_from_logits(logits, mask)
@@ -444,6 +470,7 @@ def train_segmenter(model, train_loader, val_loader, device, epochs=5, lr=1e-3):
 
         model.eval() #evaluate mode
         vloss_sum, vn = 0.0, 0
+        dice_sum, dice_n = 0.0, 0
         with torch.no_grad(): #no gradients
             for x, mask in val_loader: #validation batches
                 x, mask = x.to(device), mask.to(device)
@@ -453,12 +480,36 @@ def train_segmenter(model, train_loader, val_loader, device, epochs=5, lr=1e-3):
                 loss = 0.5 * bce + 0.5 * dsc
                 vloss_sum += loss.item() * x.size(0)
                 vn += x.size(0)
+                
+                probs = torch.sigmoid(logits).squeeze(1)
+                pred = (probs > 0.5).float()
+                inter = (pred * mask).sum(dim=(1,2))
+                union = pred.sum(dim=(1,2)) + mask.sum(dim=(1,2))
+                dice = (2 * inter + 1e-6) / (union + 1e-6)
+                dice_sum += dice.sum().item()
+                dice_n += dice.size(0)
 
         val_loss = vloss_sum / max(1, vn) #averagve validation loss
-        print(f"[SEG] Epoch {ep}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}")
-        best_val = min(best_val, val_loss)
-
-    print(f"[SEG] Done :D. Best validation loss : {best_val:.4f}")
+        val_dice = dice_sum / max(1, dice_n)    #
+        print(f"[SEG] Epoch {ep}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, val_dice={val_dice:.4f}")
+        
+        train_losses_list.append(train_loss)    # append to list
+        val_losses_list.append(val_loss)
+        val_dices_list.append(val_dice)
+        
+        # save best checkpoint
+        if val_loss < best_val:
+            best_val = val_loss
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            print(f"  -> New best val_loss: {best_val:.4f}, saving checkpoint")
+            
+        scheduler.step()
+    
+    # restore best weights
+    if best_state is not None:
+        model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+    print(f"[SEG] Done :D. Best validation loss : {best_val:.4f} (restored)")
+    return {"train_loss": train_losses_list, "val_loss": val_losses_list, "val_dice": val_dices_list} # return for charting
 
 def evaluate_segmenter(model, loader, device, threshold=0.5, eps=1e-7):
     """
@@ -573,18 +624,15 @@ def export_onnx_single_file(model, dummy, out_path: Path): #if this doesnt work 
     print(f"Single-file saved -> {out_path}")
 
 
-
-
-
 #Main
 
 def main(): #main function (where the magic happens ;) )
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_root", type=str, default="extracted_data")
     parser.add_argument("--out_dir", type=str, default="onnx_out")
-    parser.add_argument("--epochs_cls", type=int, default=5)
-    parser.add_argument("--epochs_seg", type=int, default=5)
-    parser.add_argument("--batch", type=int, default=32)
+    parser.add_argument("--epochs_cls", type=int, default=15)       # upped to 15
+    parser.add_argument("--epochs_seg", type=int, default=80)       # upped to 80
+    parser.add_argument("--batch", type=int, default=128)           # batch to 128
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no_pretrained", action="store_true")
     parser.add_argument("--diff_thresh", type=int, default=25)
@@ -640,15 +688,26 @@ def main(): #main function (where the magic happens ;) )
     tr_idx, va_idx = split_indices(len(cls_ds), val_frac=0.15, seed=args.seed)
     cls_train = SubsetDataset(cls_ds, tr_idx)
     cls_val = SubsetDataset(cls_ds, va_idx)
+    
+    # compute class weights from training set
+    train_labels = [cls_ds.samples[i][1] for i in tr_idx]
+    class_counts = torch.bincount(torch.tensor(train_labels), minlength=3).float()
+    class_weights = (1.0 / class_counts) * len(train_labels) / 3.0  # inverse frequency, normalized
+    class_weights = class_weights.to(device)
+    print(f"Class counts (train): Normal={int(class_counts[0])}, Ischemic={int(class_counts[1])}, Hemorrhagic={int(class_counts[2])}")
+    print(f"Class weights: {class_weights}")
 
     cls_train_loader = DataLoader(cls_train, batch_size=args.batch, shuffle=True, num_workers=2, pin_memory=True)
     cls_val_loader = DataLoader(cls_val, batch_size=args.batch, shuffle=False, num_workers=2, pin_memory=True)
     cls_model = make_resnet18_classifier(num_classes=3, pretrained=(not args.no_pretrained)).to(device)
-    train_classifier(cls_model, cls_train_loader, cls_val_loader, device, epochs=args.epochs_cls, lr=1e-4)
+    
+    # updated for logging
+    cls_history = train_classifier(cls_model, cls_train_loader, cls_val_loader, device, epochs=args.epochs_cls, lr=1e-4, class_weights=class_weights)
     evaluate_classifier(cls_model, cls_val_loader, device)
     cls_model.eval()
     dummy_cls = torch.randn(1, 3, 224, 224, device=device)
     export_onnx_single_file(cls_model, dummy_cls, out_dir / "stroke_type_classifier_single.onnx")
+    torch.save(cls_model.state_dict(), out_dir / "classifier.pt") # saves .pt file for evaluate()
 
 
     #SEGMENTER dataset
@@ -670,14 +729,22 @@ def main(): #main function (where the magic happens ;) )
     seg_train_loader = DataLoader(seg_train, batch_size=seg_bs, shuffle=True, num_workers=2, pin_memory=True)
     seg_val_loader = DataLoader(seg_val, batch_size=seg_bs, shuffle=False, num_workers=2, pin_memory=True)
 
-    seg_model = UNetSmall(in_ch=1, base=32).to(device)
-    train_segmenter(seg_model, seg_train_loader, seg_val_loader, device, epochs=args.epochs_seg, lr=1e-3)
+    seg_model = UNetSmall(in_ch=1, base=64).to(device)
+    
+    #updated for logging
+    seg_history = train_segmenter(seg_model, seg_train_loader, seg_val_loader, device, epochs=args.epochs_seg, lr=1e-3)
     evaluate_segmenter(seg_model, seg_val_loader, device, threshold=0.5)
     seg_model.eval()
     dummy_seg = torch.randn(1, 1, 256, 256, device=device)
     export_onnx_single_file(seg_model, dummy_seg, out_dir / "stroke_location_segmenter_single.onnx")
+    torch.save(seg_model.state_dict(), out_dir / "segmenter.pt") # saves .pt file for evalute()
 
-
+    # logs training history
+    import json
+    history = {"cls": cls_history, "seg": seg_history}
+    with open(out_dir / "training_history.json", "w") as f:
+        json.dump(history, f)
+    print(f"Training history saved to: {out_dir / 'training_history.json'}")
 
     print("\nAll done.")
     print("ONNX models saved to:", out_dir.resolve())
