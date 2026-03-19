@@ -11,14 +11,14 @@ class PatientSummary {//full patient summary storage
   final String scanId; 
 
   const PatientSummary({
-    required this.scanId,
+    this.scanId = "0",
     this.run_by,
     required this.label,
     required this.confidence,
     required this.perClassProb,
     required this.slicesUsed,
     required this.totalSlices,
-    required this.slicesIds,
+    this.slicesIds = const[],
     this.imageUrl = const [],   //this is const so that it can be a const class use copy with
     });
 }

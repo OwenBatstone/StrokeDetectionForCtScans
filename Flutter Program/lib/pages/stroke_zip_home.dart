@@ -168,7 +168,7 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
         if(bytes == null) {
           imageUrls.add('');continue;
           }
-        final path = '$userId/$scanId/${sliceIds[i]}.png';
+        final path = '$scanId/${sliceIds[i]}.png';
         await supabase.storage.from('scan_images').uploadBinary(path, bytes);
         imageUrls.add(path);
 
@@ -207,30 +207,30 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
         await insertPatientSummary(summary);
 
         print('usedForAgg: $usedForAgg');
-print('summary: $summary');
-print('calling insertPatientSummary...');
-await insertPatientSummary(summary);
-print('insert done');
+        print('summary: $summary');
+        print('calling insertPatientSummary...');
+        await insertPatientSummary(summary);
+        print('insert done');
+        }
+        //set the UI once at the end (way faster then doing it after each slice is ready, could change later if we value showing them as they come)
+        setState(() {
+          _busy = false;
+          _rows = out;
+          _summary = summary;
+          _status = 'Done.';
+        });
+      } catch (e) {
+        setState(() {
+          _busy = false;
+          _status = 'Error: $e';
+        });
       }
-      //set the UI once at the end (way faster then doing it after each slice is ready, could change later if we value showing them as they come)
-      setState(() {
-        _busy = false;
-        _rows = out;
-        _summary = summary;
-        _status = 'Done.';
-      });
-    } catch (e) {
-      setState(() {
-        _busy = false;
-        _status = 'Error: $e';
-      });
     }
-  }
 
 
-  @override
-  Widget build(BuildContext context) {
-    final summary = _summary;
+    @override
+    Widget build(BuildContext context) {
+      final summary = _summary;
 
     return Scaffold( //basic screen for now
       appBar: AppBar(title: const Text('Stroke ZIP Classifier + Locator')),

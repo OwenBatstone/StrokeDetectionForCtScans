@@ -1,4 +1,3 @@
-import '../supabase_functions/initilize_supabase.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data_classes/paitient_summary.dart';
 
@@ -11,7 +10,6 @@ Future<String?> insertPatientSummary(PatientSummary summary) async {
     final response = await supabase
         .from('Scan_Overview')
         .insert({
-          'slices_Id' : summary.slicesUsed,
           'scan_id' : summary.scanId,
           'run_by' : summary.run_by,
           'prediction': summary.label,
