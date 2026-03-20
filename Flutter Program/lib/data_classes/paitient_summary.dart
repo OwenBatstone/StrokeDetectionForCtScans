@@ -8,6 +8,7 @@ class PatientSummary {//full patient summary storage
   final int totalSlices;
   final List<String> slicesIds;
   final List<String> imageUrl;
+  final List<String?> overlay_file_url;
   final String scanId; 
 
   const PatientSummary({
@@ -20,5 +21,6 @@ class PatientSummary {//full patient summary storage
     required this.totalSlices,
     this.slicesIds = const[],
     this.imageUrl = const [],   //this is const so that it can be a const class use copy with
+    this.overlay_file_url = const[],
     });
 }

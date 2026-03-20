@@ -32,6 +32,6 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/models/stroke_type_classifier_single.onnx
-    - assets/models/stroke_location_segmenter_single.onnx
+    - assets/models/classifier.onnx
+    - assets/models/segmenter.onnx
     

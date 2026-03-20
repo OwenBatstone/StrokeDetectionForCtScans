@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:stroketry3/pages/admin_view.dart';
+
 import '../pages/stroke_zip_home.dart';
 import '../login/sign_in.dart';
 
@@ -28,7 +28,7 @@ class LoginPage extends StatefulWidget {
       await signInWithEmail(email, password);
 
       if (mounted) { 
-        Navigator.pushReplacement(
+        Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => const StrokeZipHome()),
         );

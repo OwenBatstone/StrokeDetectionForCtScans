@@ -2,6 +2,7 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:stroketry3/pages/admin_view.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -30,6 +31,8 @@ import '../supabase_functions/insert_patient_summary.dart';
 
 //inference
 import '../stroke_inference_service/stroke_inference_service.dart';
+//admin check 
+import '../supabase_functions/is_user_admin.dart';
 
 
 
@@ -41,13 +44,20 @@ class StrokeZipHome extends StatefulWidget {
 
 class _StrokeZipHomeState extends State<StrokeZipHome> {
   final _svc = StrokeInferenceService();
-
+  
   bool _busy = false;
   String _status = 'Upload a .zip with images (png/jpg/jpeg).';
   String _modelInfo = '';
+  bool _isAdmin = true;
 
   PatientSummary? _summary;
   List<SliceResult> _rows = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAdminStatus(); 
+  }
 
   @override
   void dispose() {
@@ -55,7 +65,19 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
     super.dispose();
   }
   //SelectTest Function 
-  
+  Future<void> _loadAdminStatus() async {
+  try {
+    final adminStatus = await isAdmin();
+    if (mounted) {
+      setState(() {
+        _isAdmin = adminStatus;
+      });
+    }
+  } catch (e) {
+    print('isAdmin error: $e');
+    if (mounted) setState(() => _isAdmin = false);
+  }
+}
 
 
   Future<void> _pickZipAndRun() async {
@@ -146,7 +168,7 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
           typeLabel: pred.label,
           confidence: pred.confidence,
           logits: pred.logits, ///raw logits
-          originalPng: ensurePngBytes(decoded), //cre-encoded to keep the display consistent
+          originalPng: ensurePngBytes(decoded), //re-encoded to keep the display consistent
           maskOverlayPng: seg.overlayPng, //bytes of the overlay
           centroid: seg.centroid, //dot location
           maskScore: seg.maskScore, //about how much of the image is filled by the leision
@@ -161,9 +183,10 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
       final userId = supabase.auth.currentUser?.id;
 
       //uploading paitient summary
-      setState(() => _status = 'Uploading slices');
-      final imageUrls = <String>[]; 
-      for( int i =0; i < out.length; i++){
+      setState(() => _status = 'Uploading slices'); //change text to uploading 
+      final imageUrls = <String>[]; // list for image Urls in supabase not nullable
+      
+      for( int i =0; i < out.length; i++){ //for length of out 
         final bytes = out[i].originalPng; 
         if(bytes == null) {
           imageUrls.add('');continue;
@@ -171,8 +194,17 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
         final path = '$scanId/${sliceIds[i]}.png';
         await supabase.storage.from('scan_images').uploadBinary(path, bytes);
         imageUrls.add(path);
+      }
 
-
+      final overlayUrl = <String?>[];
+      for( int i =0; i < out.length; i++){
+        final bytes = out[i].maskOverlayPng; 
+        if(bytes == null) {
+          overlayUrl.add(null);continue;
+          }
+        final path = '${scanId}/${sliceIds[i]}_overlay.png';
+        await supabase.storage.from('overlay_images').uploadBinary(path, bytes);
+        overlayUrl.add(path);
       }
 
       
@@ -198,19 +230,14 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
           scanId: scanId,
           slicesIds:sliceIds,
           imageUrl:imageUrls ,
+          overlay_file_url: overlayUrl,
         );
         print('usedForAgg: $usedForAgg');
         print('summary: $summary');
         print('calling insertPatientSummary...');
         await insertPatientSummary(summary);
         print('insert done');
-        await insertPatientSummary(summary);
 
-        print('usedForAgg: $usedForAgg');
-        print('summary: $summary');
-        print('calling insertPatientSummary...');
-        await insertPatientSummary(summary);
-        print('insert done');
         }
         //set the UI once at the end (way faster then doing it after each slice is ready, could change later if we value showing them as they come)
         setState(() {
@@ -244,7 +271,19 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
               icon: const Icon(Icons.upload_file),
               label: const Text('Upload ZIP + Run'),
             ),
+            
+            //button between pages for testing
+            if(_isAdmin)
+            FilledButton(
+              onPressed: () =>
+                Navigator.push( context,  
+                MaterialPageRoute(builder: (context) => const AdminView()),
+                ),
+                child: Text("ADMIN PAGE"),
+              ),
             const SizedBox(height: 10), 
+            
+            
             Text(_status),
             if (_modelInfo.isNotEmpty) ...[
               const SizedBox(height: 10),

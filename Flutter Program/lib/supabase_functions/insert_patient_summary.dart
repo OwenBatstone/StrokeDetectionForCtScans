@@ -15,7 +15,6 @@ Future<String?> insertPatientSummary(PatientSummary summary) async {
           'prediction': summary.label,
           'confidence': summary.confidence,
           'total_slices': summary.totalSlices,
-          'file_url': summary.imageUrl,
         })
         .select()
         .single();
@@ -28,6 +27,7 @@ Future<String?> insertPatientSummary(PatientSummary summary) async {
         'scan_id': scanId,
         'file_url': summary.imageUrl.length > i ? summary.imageUrl[i] : null,
         'run_by':summary.run_by,
+        'overlay_file_url': summary.overlay_file_url.length > i ? summary.overlay_file_url[i] : null,
 
       }
         

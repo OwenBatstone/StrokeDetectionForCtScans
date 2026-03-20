@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../data_classes/slice_results.dart';
-import '../widgets/dot_painter.dart';
+
+
+
 class SliceViewerScreen extends StatefulWidget {
   final SliceResult result;
   const SliceViewerScreen({super.key, required this.result});

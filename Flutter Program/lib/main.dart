@@ -1,6 +1,5 @@
 
 import 'package:flutter/material.dart';
-import 'package:stroketry3/pages/admin_view.dart';
 import 'package:stroketry3/pages/login.dart';
 import '../supabase_functions/initilize_supabase.dart';
 

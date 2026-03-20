@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../data_classes/paitient_summary.dart';   // ScanRecord
 import '../widgets/slice_card.dart';           // SliceCard
@@ -17,6 +18,7 @@ class ScanRow extends StatelessWidget {
         padding: const EdgeInsets.all(12), 
         child: Column (
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -46,18 +48,30 @@ class ScanRow extends StatelessWidget {
           InfoRow(label: 'Total Slices', value: scan.totalSlices.toString()),
           InfoRow(label: 'Slices Used', value: scan.slicesUsed.toString()),
           InfoRow(label: 'Run By', value: scan.run_by ?? 'empty'),
-
+         //big card
           SizedBox(
-            height: 200,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: scan.imageUrl.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 10,),
-              itemBuilder: (context , i) =>SliceCard(
-                sliceId : scan.slicesIds[i], 
-                imageUrl : scan.imageUrl[i]
+            height: 400,
+            child: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(
+                dragDevices: {
+                  PointerDeviceKind.mouse
+                }
+              ),
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                primary: false,
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: scan.imageUrl.length,                   
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, i) => SliceCard(
+                  sliceId: scan.slicesIds[i],
+                   imageUrl: scan.imageUrl[i],                      
+                    overlay_file_url: i < scan.overlay_file_url.length 
+                   ? scan.overlay_file_url[i]                 
+                  : null,
                 ),
-            ),
+              ),
+            )
           )
         ],
         ),
