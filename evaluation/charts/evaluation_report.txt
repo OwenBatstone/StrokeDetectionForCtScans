@@ -1,0 +1,36 @@
+========================================
+  STROKE DETECTION EVALUATION REPORT
+========================================
+
+CLASSIFIER (ResNet18, 3-class)
+------------------------------
+Overall Accuracy: 0.9689
+
+Per-class Sensitivity (Recall):
+  Normal:       0.9910 (659/665)
+  Ischemic:     0.9172 (144/157)
+  Hemorrhagic:  0.9318 (164/176)
+
+Per-class AUC (one-vs-rest):
+  Normal:       0.9956
+  Ischemic:     0.9943
+  Hemorrhagic:  0.9946
+  Macro AUC:    0.9948
+
+Confusion Matrix:
+              Pred Normal  Pred Ischemic  Pred Hemorrhagic
+  Normal           659              3                 3
+  Ischemic          11            144                 2
+  Hemorrhagic        8              4               164
+
+Strokes missed as Normal: 19 / 333
+
+SEGMENTER (UNet, binary mask)
+------------------------------
+Mean Dice:       0.6165
+Mean IoU:        0.6914
+Pixel Precision: 0.7727
+Pixel Recall:    0.6917
+Pixel F1:        0.7299
+
+========================================
