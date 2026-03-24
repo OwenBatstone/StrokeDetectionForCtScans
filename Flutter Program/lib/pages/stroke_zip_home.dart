@@ -290,9 +290,12 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
               icon: const Icon(Icons.upload_file),
               label: const Text('Upload ZIP + Run'),
             ),
+            
 
             //button between pages
             if (_isAdmin)
+            //box for spacing
+            const SizedBox(height:10),
               //if admin add button under zip and navigate to admin on press
               FilledButton(
                 onPressed: () => Navigator.push(
@@ -302,7 +305,7 @@ class _StrokeZipHomeState extends State<StrokeZipHome> {
                 child: Text("ADMIN PAGE"),
               ),
             const SizedBox(height: 10),
-
+      
             Text(_status),
             if (_modelInfo.isNotEmpty) ...[
               const SizedBox(height: 10),
