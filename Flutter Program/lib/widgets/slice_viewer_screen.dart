@@ -2,32 +2,30 @@ import 'package:flutter/material.dart';
 
 import '../data_classes/slice_results.dart';
 
-
-
 class SliceViewerScreen extends StatefulWidget {
   final SliceResult result;
   const SliceViewerScreen({super.key, required this.result});
 
   @override
   State<SliceViewerScreen> createState() => _SliceViewerScreenState();
-  }
+}
 
-class _SliceViewerScreenState extends State<SliceViewerScreen>{
+class _SliceViewerScreenState extends State<SliceViewerScreen> {
   bool _showOverlay = true;
   @override
   Widget build(BuildContext context) {
-    final result= widget.result;
+    final result = widget.result;
     final baseBytes = result.originalPng!; //base image
     final overlayBytes = result.maskOverlayPng; //mask bytes or null if none
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(result.fileName),
-      ),
+      appBar: AppBar(title: Text(result.fileName)),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column( //vertical layoutm with text and hte images
-          crossAxisAlignment: CrossAxisAlignment.start, //moves all text to the left
+        child: Column(
+          //vertical layoutm with text and hte images
+          crossAxisAlignment:
+              CrossAxisAlignment.start, //moves all text to the left
           children: [
             Text(
               overlayBytes == null
@@ -42,18 +40,18 @@ class _SliceViewerScreenState extends State<SliceViewerScreen>{
                 runSpacing: 8,
                 children: [
                   FilterChip(
-                  selected: _showOverlay,
-                  label: const Text('Show Overlay'),
-                  onSelected: (value) {
-                    setState(() {
-                      _showOverlay = value;
-                    });
-                  },
-                ),
-            ],
-          ),
+                    selected: _showOverlay,
+                    label: const Text('Show Overlay'),
+                    onSelected: (value) {
+                      setState(() {
+                        _showOverlay = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
 
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
             Expanded(
               child: Center(
                 child: AspectRatio(

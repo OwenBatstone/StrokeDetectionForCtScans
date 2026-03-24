@@ -1,5 +1,5 @@
 //flattens the nested list into a List<double>
-List<double> flattenToDoubles(dynamic x) { 
+List<double> flattenToDoubles(dynamic x) {
   final out = <double>[];
 
   void rec(dynamic v) {

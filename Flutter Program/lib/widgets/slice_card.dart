@@ -19,7 +19,6 @@ class SliceCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-
           // Original slice image
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
@@ -32,7 +31,9 @@ class SliceCard extends StatelessWidget {
                   ? child
                   : const SizedBox(
                       height: 160,
-                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      child: Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                     ),
               errorBuilder: (_, __, ___) => const SizedBox(
                 height: 160,
@@ -48,28 +49,30 @@ class SliceCard extends StatelessWidget {
 
           // Overlay image
           if (overlay_file_url != null && overlay_file_url!.isNotEmpty)
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.network(
-              overlay_file_url!,
-              height: 160,
-              width: 110,
-              fit: BoxFit.cover,
-              loadingBuilder: (_, child, progress) => progress == null
-                  ? child
-                  : const SizedBox(
-                      height: 160,
-                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                    ),
-              errorBuilder: (_, __, ___) => const SizedBox(
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                overlay_file_url!,
                 height: 160,
-                child: ColoredBox(
-                  color: Colors.black12,
-                  child: Icon(Icons.broken_image, size: 32),
+                width: 110,
+                fit: BoxFit.cover,
+                loadingBuilder: (_, child, progress) => progress == null
+                    ? child
+                    : const SizedBox(
+                        height: 160,
+                        child: Center(
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                errorBuilder: (_, __, ___) => const SizedBox(
+                  height: 160,
+                  child: ColoredBox(
+                    color: Colors.black12,
+                    child: Icon(Icons.broken_image, size: 32),
+                  ),
                 ),
               ),
             ),
-          ),
 
           const SizedBox(height: 6),
 

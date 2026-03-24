@@ -1,3 +1,6 @@
+//Function to initilize supabase Used in Main. 
+//Should be called once
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 

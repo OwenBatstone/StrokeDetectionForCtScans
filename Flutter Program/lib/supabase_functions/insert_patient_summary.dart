@@ -1,3 +1,5 @@
+//function to post scan data to database
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data_classes/paitient_summary.dart';
 
@@ -25,7 +27,7 @@ Future<String?> insertPatientSummary(PatientSummary summary) async {
       await supabase.from('Scan_Slices').insert({
         'slices_Id':summary.slicesIds[i],
         'scan_id': scanId,
-        'file_url': summary.imageUrl.length > i ? summary.imageUrl[i] : null,
+        'file_url': summary.imageUrl.length > i ? summary.imageUrl[i] : null, // can be null since imageUrl comes from reposnse array for each
         'run_by':summary.run_by,
         'overlay_file_url': summary.overlay_file_url.length > i ? summary.overlay_file_url[i] : null,
 
@@ -33,7 +35,7 @@ Future<String?> insertPatientSummary(PatientSummary summary) async {
         
       );
     }
-
+    //scan ID is genereated by supabase
     return scanId;
 
   } on PostgrestException catch (e) {

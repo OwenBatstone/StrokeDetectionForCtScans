@@ -1,4 +1,4 @@
-
+//Function to get mask
 
 int argmax(List<double> a) {
   var bestI = 0;

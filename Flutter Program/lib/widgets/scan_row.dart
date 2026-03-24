@@ -1,113 +1,112 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import '../data_classes/paitient_summary.dart';   // ScanRecord
-import '../widgets/slice_card.dart';           // SliceCard
+import '../data_classes/paitient_summary.dart'; // ScanRecord
+import '../widgets/slice_card.dart'; // SliceCard
 
+class ScanRow extends StatelessWidget {
+  const ScanRow({required this.scan, super.key});
 
-class ScanRow extends StatelessWidget { 
-  const ScanRow({required this.scan, super.key}); 
-
-  final PatientSummary scan; 
+  final PatientSummary scan;
 
   @override
-  Widget build(BuildContext context){ 
-    return Card(
+  Widget build(BuildContext context) {
+    return Card( //card per scan
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(12), 
-        child: Column (
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.folder_open, size: 18 ), 
-              const SizedBox(width: 8),
-              Text('Scan : ${scan.scanId}',
-              style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const Spacer(), 
-              Text(
-                '${scan.slicesIds.length} slices', 
-                style: Theme.of(context).textTheme.bodySmall, 
-              )
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.folder_open, size: 18),
+                const SizedBox(width: 8),
+                Text( //show text for scan
+                  'Scan : ${scan.scanId}',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${scan.slicesIds.length} slices',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
 
-            ],
-          ), 
-
-          const SizedBox(height: 12,),
-          const Divider(height: 1,), 
-          const SizedBox(height: 12), 
-
-          InfoRow(label: 'Prediction', value: scan.label,),
-          InfoRow(label: 'Confidence', value: scan.confidence.toString()),
-          InfoRow(label: 'Total Slices', value: scan.totalSlices.toString()),
-          InfoRow(label: 'Slices Used', value: scan.slicesUsed.toString()),
-          InfoRow(label: 'Run By', value: scan.run_by ?? 'empty'),
-         //big card
-          SizedBox(
-            height: 400,
-            child: ScrollConfiguration(
-              behavior: ScrollConfiguration.of(context).copyWith(
-                dragDevices: {
-                  PointerDeviceKind.mouse
-                }
-              ),
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                primary: false,
-                physics: const AlwaysScrollableScrollPhysics(),
-                itemCount: scan.imageUrl.length,                   
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (context, i) => SliceCard(
-                  sliceId: scan.slicesIds[i],
-                   imageUrl: scan.imageUrl[i],                      
-                    overlay_file_url: i < scan.overlay_file_url.length 
-                   ? scan.overlay_file_url[i]                 
-                  : null,
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            //text
+            InfoRow(label: 'Prediction', value: scan.label),
+            InfoRow(label: 'Confidence', value: scan.confidence.toString()),
+            InfoRow(label: 'Total Slices', value: scan.totalSlices.toString()),
+            InfoRow(label: 'Slices Used', value: scan.slicesUsed.toString()),
+            InfoRow(label: 'Run By', value: scan.run_by ?? 'empty'),
+            //big card
+            SizedBox(
+              height: 400,
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(
+                  context,
+                ).copyWith(dragDevices: {PointerDeviceKind.mouse}),
+                child: ListView.separated(
+                  //allow for drag scrolling
+                  scrollDirection: Axis.horizontal,
+                  primary: false,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount: scan.imageUrl.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  //pass item builder with itterated array of image urls
+                  itemBuilder: (context, i) => SliceCard(
+                    sliceId: scan.slicesIds[i],
+                    imageUrl: scan.imageUrl[i],
+                    overlay_file_url: i < scan.overlay_file_url.length
+                        ? scan.overlay_file_url[i]
+                        : null,
+                  ),
                 ),
               ),
-            )
-          )
-        ],
+            ),
+          ],
         ),
-        ),
-      );
+      ),
+    );
   }
 }
 
 
-class InfoRow extends StatelessWidget { 
-  const InfoRow({required this.label, required this.value, super.key}); 
+//Info Row
+class InfoRow extends StatelessWidget {
+  const InfoRow({required this.label, required this.value, super.key});
 
-  final String label; 
+  final String label;
   final String value;
 
   @override
-  Widget build(BuildContext context) { 
-    return Padding (
-      padding: const EdgeInsets.symmetric(vertical : 3),
-      child: Row( 
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
         children: [
           Text(
-            '$label : ', 
-            style : Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(fontWeight: FontWeight.w600),
+            '$label : ',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
           ),
-          Expanded(child: Text(
-            value, 
-            style: Theme.of(context).textTheme.bodySmall,
-            overflow: TextOverflow.ellipsis,
-          ))
+          Expanded(
+            child: Text(
+              value,
+              style: Theme.of(context).textTheme.bodySmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );
   }
-
 }
