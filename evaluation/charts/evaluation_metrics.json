@@ -1,0 +1,61 @@
+{
+  "classifier": {
+    "accuracy": 0.968937875751503,
+    "cohens_kappa": 0.937077344549232,
+    "per_class": {
+      "Normal": {
+        "precision": 0.971976401179941,
+        "recall": 0.9909774436090225,
+        "specificity": 0.9429429426597769,
+        "f1": 0.9813849590469099,
+        "auc": 0.9955835534782904,
+        "avg_precision": 0.997784915806955,
+        "support": 665
+      },
+      "Ischemic": {
+        "precision": 0.9536423841059603,
+        "recall": 0.9171974522292994,
+        "specificity": 0.9916765753874345,
+        "f1": 0.935064935064935,
+        "auc": 0.9943273476374046,
+        "avg_precision": 0.974202605561525,
+        "support": 157
+      },
+      "Hemorrhagic": {
+        "precision": 0.9704142011834319,
+        "recall": 0.9318181818181818,
+        "specificity": 0.9939172748182583,
+        "f1": 0.9507246376811594,
+        "auc": 0.9945739327582394,
+        "avg_precision": 0.9844504552260679,
+        "support": 176
+      }
+    },
+    "macro_precision": 0.965344328823111,
+    "macro_recall": 0.9466643592188345,
+    "macro_f1": 0.9557248439310015,
+    "macro_auc": 0.9948282779579781,
+    "weighted_f1": 0.9686911110253246,
+    "strokes_missed_as_normal": 19,
+    "total_stroke_samples": 333
+  },
+  "segmenter": {
+    "mean_dice": 0.6164838207181798,
+    "std_dice": 0.33698725256648293,
+    "mean_iou": 0.5220723507056859,
+    "std_iou": 0.3185278291723876,
+    "pixel_accuracy": 0.9921018125058607,
+    "pixel_precision": 0.7726488752675765,
+    "pixel_recall": 0.6917154140806213,
+    "pixel_specificity": 0.996809889718844,
+    "pixel_f1": 0.7299455525991424,
+    "best_threshold": 0.40000000000000013
+  },
+  "inference_ms": {
+    "pytorch_classifier": 7.261937899456825,
+    "pytorch_segmenter": 140.97251120168949,
+    "onnx_classifier": "8.82 +/- 0.87 ms",
+    "onnx_segmenter": "125.39 +/- 1.83 ms"
+  },
+  "device": "cpu"
+}

@@ -2,35 +2,96 @@
   STROKE DETECTION EVALUATION REPORT
 ========================================
 
+DATASET
+------------------------------
+Classifier val set: 998 images
+  Normal:       665
+  Ischemic:     157
+  Hemorrhagic:  176
+Segmenter val set:  333 pairs
+
 CLASSIFIER (ResNet18, 3-class)
 ------------------------------
-Overall Accuracy: 0.9689
+Overall Accuracy:   0.9689
+Cohen's Kappa:      0.9371
 
-Per-class Sensitivity (Recall):
+Per-class Precision:
+  Normal:       0.9720
+  Ischemic:     0.9536
+  Hemorrhagic:  0.9704
+
+Per-class Recall (Sensitivity):
   Normal:       0.9910 (659/665)
   Ischemic:     0.9172 (144/157)
   Hemorrhagic:  0.9318 (164/176)
+
+Per-class Specificity:
+  Normal:       0.9429
+  Ischemic:     0.9917
+  Hemorrhagic:  0.9939
+
+Per-class F1 Score:
+  Normal:       0.9814
+  Ischemic:     0.9351
+  Hemorrhagic:  0.9507
 
 Per-class AUC (one-vs-rest):
   Normal:       0.9956
   Ischemic:     0.9943
   Hemorrhagic:  0.9946
-  Macro AUC:    0.9948
+
+Per-class Average Precision:
+  Normal:       0.9978
+  Ischemic:     0.9742
+  Hemorrhagic:  0.9845
+
+Macro Averages:
+  Precision:    0.9653
+  Recall:       0.9467
+  F1:           0.9557
+  AUC:          0.9948
+
+Weighted F1:    0.9687
 
 Confusion Matrix:
-              Pred Normal  Pred Ischemic  Pred Hemorrhagic
+                Pred Normal  Pred Ischemic  Pred Hemorrhagic
   Normal           659              3                 3
   Ischemic          11            144                 2
   Hemorrhagic        8              4               164
 
-Strokes missed as Normal: 19 / 333
+Clinical Safety:
+  Strokes missed as Normal: 19 / 333
+  False stroke rate (Normal predicted as stroke): 6 / 665
 
 SEGMENTER (UNet, binary mask)
 ------------------------------
-Mean Dice:       0.6165
-Mean IoU:        0.6914
-Pixel Precision: 0.7727
-Pixel Recall:    0.6917
-Pixel F1:        0.7299
+Mean Dice:          0.6165 +/- 0.3370
+Mean IoU:           0.5221 +/- 0.3185
+Pixel Accuracy:     0.9921
+Pixel Precision:    0.7726
+Pixel Recall:       0.6917
+Pixel Specificity:  0.9968
+Pixel F1:           0.7299
+
+Pixel Confusion:
+  TP: 232,949   FP: 68,545
+  FN: 103,821   TN: 21,418,173
+
+Best Threshold (by Dice): 0.40
+  Dice at best:     0.6166
+  Precision:        0.7641
+  Recall:           0.6984
+
+INFERENCE PERFORMANCE
+------------------------------
+PyTorch (single image):
+  Classifier:   7.26 +/- 0.21 ms
+  Segmenter:    140.97 +/- 0.85 ms
+
+ONNX Runtime (single image):
+  Classifier:   8.82 +/- 0.87 ms
+  Segmenter:    125.39 +/- 1.83 ms
+
+Device: cpu
 
 ========================================
