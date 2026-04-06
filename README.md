@@ -8,8 +8,8 @@ This software is provided for educational and research purposes only. We take no
 
 **THIS PROGRAM MUST NEVER BE USED IN ANY MEDICAL CONTEXTS**
 
-## Project Overview
-The system is composed of two main components:
+## Model Training Overview
+The system is trained using the following dataset with a 80/20 split: https://www.kaggle.com/datasets/ozguraslank/brain-stroke-ct-dataset/data into the two following models:
 
 ### Classification Model (Stroke Prediction)
 The classification model is based on a ResNet-18 architecture.
@@ -21,6 +21,27 @@ The classification model is based on a ResNet-18 architecture.
   - Ischemic Stroke
   - Hemorrhagic Stroke
 
+### Segmentation Model (Leission Mask Creation)
+The segementation model is based on a U-Net architecture.
+#### Model Overview
+- Architecture: U-Net
+- Input: 256 x 256 grayscale images
+- Output: Binary Mask (probability map with a percentage change of lesions at each pixel)
+
+## Model Deployment
+The models are made into ONNX files which are read in the flutter program and can be found at the onnx export files.
+### Image Input
+Images are inputed as zip files and are then preprocessed by both models:
+#### Classification Preprocessing
+- Images are resized to 224 x 224
+- Images are converted to RGB
+- Pixel values are normalized to [0,1]
+#### Segmentation Preprocessing
+- Images are resized to 256 x 256
+- Images are converted to grayscale
+- Pixel values are normalized
+- Only images with leissions present will have a mask placed on them
+  
 ## Running the App
 To run the program, run the Stroke Detection Installer, you can choose to make it a desktop app or not.
 
