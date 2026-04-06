@@ -50,6 +50,8 @@ Owen Batstone
 Nicholas Roy
 Andrew Holt-Hindle
 
+![Poster](CT_poster.png)
+
 ## MIT License
 Copyright (c) 2026 
 Owen Batstone, Nicholas Roy, Andrew Holt-Hindle
