@@ -8,6 +8,19 @@ This software is provided for educational and research purposes only. We take no
 
 **THIS PROGRAM MUST NEVER BE USED IN ANY MEDICAL CONTEXTS**
 
+## Project Overview
+The system is composed of two main components:
+
+### Classification Model (Stroke Prediction)
+The classification model is based on a ResNet-18 architecture.
+#### Model Overview
+-Architecture: ResNet-18
+-Input: 224 x 224 RGB CT scan slices
+-Output: 3-class logits
+  -Normal
+  -Ischemic Stroke
+  -Hemorrhagic Stroke
+
 ## Running the App
 To run the program, run the Stroke Detection Installer, you can choose to make it a desktop app or not.
 
