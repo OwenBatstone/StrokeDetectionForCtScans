@@ -14,12 +14,12 @@ The system is composed of two main components:
 ### Classification Model (Stroke Prediction)
 The classification model is based on a ResNet-18 architecture.
 #### Model Overview
--Architecture: ResNet-18
--Input: 224 x 224 RGB CT scan slices
--Output: 3-class logits
-  -Normal
-  -Ischemic Stroke
-  -Hemorrhagic Stroke
+- Architecture: ResNet-18
+- Input: 224 x 224 RGB CT scan slices
+- Output: 3-class logits
+  - Normal
+  - Ischemic Stroke
+  - Hemorrhagic Stroke
 
 ## Running the App
 To run the program, run the Stroke Detection Installer, you can choose to make it a desktop app or not.
